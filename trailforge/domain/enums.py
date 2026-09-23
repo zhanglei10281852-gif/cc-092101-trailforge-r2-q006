@@ -160,6 +160,9 @@ class AuditAction(StrEnum):
     RETURNED = "returned"
     RISK_RECORDED = "risk_recorded"
     EMERGENCY_RECORDED = "emergency_recorded"
+    ACTION_PACK_EXPORTED = "action_pack_exported"
+    ACTION_PACK_IMPORTED = "action_pack_imported"
+    ACTION_PACK_REJECTED = "action_pack_rejected"
 
 
 PLAN_TRANSITIONS: dict[PlanStatus, set[PlanStatus]] = {

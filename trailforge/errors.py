@@ -55,3 +55,17 @@ class DatabaseBusyError(TrailForgeError):
 class UnauthorizedOperationError(TrailForgeError):
     status_code = 403
     code = "operation_not_allowed"
+
+
+class ActionPackIntegrityError(TrailForgeError):
+    status_code = 400
+    code = "action_pack_integrity"
+
+
+class ActionPackValidationError(TrailForgeError):
+    status_code = 422
+    code = "action_pack_validation"
+
+
+class ActionPackConflictError(ConflictError):
+    code = "action_pack_conflict"

@@ -109,6 +109,35 @@ curl -sS -X POST 'http://127.0.0.1:8000/api/v1/routes?actor_id=1' \
 
 列表接口都支持 `page`、`page_size`、`sort` 和 `direction`；各资源只接受文档中列出的排序字段，未知字段会返回明确的 422 业务错误。创建报名、打卡、紧急事件和库存变更时，正文包含 `idempotency_key`。同一作用域下用相同键和相同请求会返回原资源，用相同键发送不同请求会返回 409。
 
+## 离线行动包（单个活动）
+
+领队进入无网络区域前可以为单个活动导出可携带的行动包，返程后把离线新增的签到、紧急事件时间线和装备核对导回总部。
+
+```bash
+python -m trailforge.cli export-pack --expedition-id 7 --actor-id 1 --output ./pack-7.json
+python -m trailforge.cli import-pack --input ./pack-7.json --actor-id 1
+```
+
+也可以使用 HTTP：`POST /api/v1/action-packs/expeditions/{id}/export?actor_id=1` 下载包，`POST /api/v1/action-packs/import` 上传填写后的包。
+
+包是单个稳定的 UTF-8 JSON 文件，外层包含规范化（键排序、无空白）的 `manifest` 以及对其计算的 SHA-256 `digest`；当配置了 `TRAILFORGE_ACTION_PACK_SECRET` 时还会附带 HMAC-SHA256 `signature`。任何字节损坏或对清单的篡改都会在写库之前以 `action_pack_integrity` 错误拒绝。
+
+- **固定快照（只读基线）**：活动与路线修订（含分段、轨迹点、风险标签）、成员必要信息（仅显示名、电话、角色、报名状态）、装备目录与活动装备需求、安全计划（签到时段、风险评估、未关闭事件）和一个基线游标（活动/路线的 `version`+`updated_at`）。
+- **明确不含**：健康限制全文、紧急联系人、运动档案、邮箱、出生日期等无关或敏感用户资料，以及活动自由文本备注。
+- **离线可新增**：`check_ins`（签到）、`incidents` 与 `incident_updates`（紧急事件时间线）、`gear_checks`（装备核对），每个条目带稳定 `uid`。
+
+导回时逐条校验**来源活动**（包的 `expedition_id` 必须在总部存在）、**引用完整性**（签到时段、成员、装备目录、事件引用）和**时间顺序**（活动窗口、记录时间不早于发生时间、合法的事件状态流转）。
+
+原子策略（明确且可测试）：
+
+1. 摘要/签名先于一切数据库写入校验，失败则零业务写入并记录一条拒绝审计。
+2. 只要存在任一阻塞冲突（基线修订冲突、引用错误、时间顺序错误、总部已有同一签到/核对、事件出现新版本），整包不提交任何业务行，只提交导入登记、结构化冲突清单和审计，返回 `outcome="conflicts"` 与每个条目的 `conflict_type`、`entity_type`、`local_id`、`detail`。
+3. 全部条目通过时，才在单个事务内提交。
+4. 相同包重复导入按 `digest` 短路，零副作用，返回首次结果并带 `replayed=true`；早先包已应用的 `uid` 在后续增量包中作为非阻塞 `duplicates` 跳过，其余无冲突条目照常原子提交。
+5. 总部已有同一实体的新版本时绝不覆盖：基线游标版本不一致会产生 `baseline_revision_conflict`，未关闭事件版本变化会产生 `entity_version_conflict`。
+
+导出和导入都会写 `action_pack_audit` 审计记录，仅含包 id/摘要、计数、修订号和冲突类型，不含条目敏感正文。
+
 ## 目录
 
 ```text

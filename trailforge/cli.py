@@ -11,6 +11,7 @@ from trailforge.database.migrations import (
     migration_status,
 )
 from trailforge.database.session import Database
+from trailforge.services.actionpack import ActionPackService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,6 +22,17 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("check-db", help="run SQLite integrity and foreign-key checks")
     reset = subparsers.add_parser("reset-db", help="delete and recreate the local SQLite database")
     reset.add_argument("--confirm", action="store_true", help="confirm destructive local reset")
+    export = subparsers.add_parser(
+        "export-pack", help="export a portable offline action pack for one expedition"
+    )
+    export.add_argument("--expedition-id", type=int, required=True)
+    export.add_argument("--output", type=Path, required=True)
+    export.add_argument("--actor-id", type=int, required=True)
+    import_pack = subparsers.add_parser(
+        "import-pack", help="validate and import an offline action pack"
+    )
+    import_pack.add_argument("--input", type=Path, required=True)
+    import_pack.add_argument("--actor-id", type=int)
     return parser
 
 
@@ -56,6 +68,24 @@ def main() -> int:
         recreated = Database(settings)
         applied = initialize_database(recreated)
         print(json.dumps({"database": str(path), "applied": applied}, ensure_ascii=False))
+        return 0
+    if args.command == "export-pack":
+        initialize_database(database)
+        with database.session() as session:
+            raw, summary = ActionPackService(
+                session, secret=settings.action_pack_secret or None
+            ).export_pack(args.expedition_id, actor_id=args.actor_id)
+        args.output.write_bytes(raw)
+        print(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False))
+        return 0
+    if args.command == "import-pack":
+        initialize_database(database)
+        raw = args.input.read_bytes()
+        with database.session() as session:
+            report = ActionPackService(
+                session, secret=settings.action_pack_secret or None
+            ).import_pack(raw, actor_id=args.actor_id)
+        print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False))
         return 0
     raise AssertionError("unreachable")
 

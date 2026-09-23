@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     sqlite_busy_backoff_seconds: float = Field(default=0.05, ge=0.0, le=2.0)
     default_page_size: int = Field(default=20, ge=1, le=100)
     max_page_size: int = Field(default=100, ge=1, le=500)
+    action_pack_secret: str = ""
 
     @field_validator("database_url")
     @classmethod

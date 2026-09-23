@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 def load_all_models() -> None:
+    from trailforge.models import actionpack as actionpack
     from trailforge.models import activities as activities
     from trailforge.models import audit as audit
     from trailforge.models import gear as gear
