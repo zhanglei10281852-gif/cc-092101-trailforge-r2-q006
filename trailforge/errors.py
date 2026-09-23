@@ -47,6 +47,24 @@ class IdempotencyConflictError(ConflictError):
     code = "idempotency_conflict"
 
 
+class PackageIntegrityError(TrailForgeError):
+    status_code = 422
+    code = "action_pack_integrity"
+
+
+class PackValidationError(TrailForgeError):
+    status_code = 422
+    code = "action_pack_validation"
+
+
+class ActionPackConflictError(ConflictError):
+    code = "action_pack_conflict"
+
+    def __init__(self, message: str, *, result: dict[str, Any]) -> None:
+        super().__init__(message, context=result)
+        self.result = result
+
+
 class DatabaseBusyError(TrailForgeError):
     status_code = 503
     code = "database_busy"

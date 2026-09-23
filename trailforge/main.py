@@ -58,7 +58,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(TrailForgeError)
     async def handle_domain_error(request: Request, exc: TrailForgeError) -> JSONResponse:
-        del request
+        # 行动包导入被拒绝时，请求事务已经回滚；在独立事务中补一条不含正文的审计。
+        pack = getattr(exc, "pack", None)
+        actor_id = getattr(exc, "actor_id", None)
+        if pack is not None:
+            database = request.app.state.database
+            with database.session() as audit_session:
+                from trailforge.services.offline import OfflinePackService
+
+                OfflinePackService(audit_session).log_rejection(
+                    pack=pack,
+                    reason=exc.code,
+                    actor_id=actor_id,
+                    detail=exc.context,
+                )
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.as_detail()})
 
     @app.exception_handler(RequestValidationError)

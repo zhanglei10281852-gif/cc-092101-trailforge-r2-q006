@@ -48,6 +48,9 @@ class ItineraryCheckIn(IntegerPrimaryKeyMixin, TimestampMixin, Base):
 class EmergencyIncident(IntegerPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     __tablename__ = "emergency_incidents"
     __table_args__ = (
+        UniqueConstraint(
+            "expedition_id", "client_ref", name="uq_incident_expedition_client_ref"
+        ),
         CheckConstraint("latitude IS NULL OR latitude BETWEEN -90 AND 90", name="latitude_range"),
         CheckConstraint(
             "longitude IS NULL OR longitude BETWEEN -180 AND 180", name="longitude_range"
@@ -58,6 +61,9 @@ class EmergencyIncident(IntegerPrimaryKeyMixin, TimestampMixin, VersionMixin, Ba
         ForeignKey("expeditions.id", ondelete="CASCADE"), index=True
     )
     reported_by: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    # 离线行动包生成的事件携带稳定的客户端引用，用于导回时幂等与冲突识别；
+    # 在线直接录入的事件该列为 NULL。
+    client_ref: Mapped[str | None] = mapped_column(String(80), index=True)
     incident_type: Mapped[EmergencyType] = mapped_column(String(32), nullable=False, index=True)
     risk_level: Mapped[RiskLevel] = mapped_column(String(24), nullable=False, index=True)
     status: Mapped[EmergencyStatus] = mapped_column(

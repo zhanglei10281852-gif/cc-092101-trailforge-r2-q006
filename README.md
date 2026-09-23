@@ -156,3 +156,46 @@ python -m trailforge.cli check-db
 每个 HTTP 请求使用独立 SQLAlchemy Session，成功时统一提交，异常时统一回滚。外键约束在每条 SQLite 连接上开启；文件数据库使用 WAL 和 busy timeout。可重试的后台写操作可使用 `Database.run_write`，它只对 SQLite busy/locked 错误做有界指数退避，不会吞掉业务冲突。
 
 训练计划、训练记录、活动、报名、装备借还、风险和签到等关键变更都会写结构化审计日志。日志包含操作者、UTC 时间、对象、动作、前后状态和必要上下文；审计工具会过滤密码、令牌、密钥等敏感字段。
+
+## 离线行动包（单个活动）
+
+领队进入无网络区域前，可以为**单个活动**导出一份可携带的行动包，在另一台电脑上补录，返程后再导回总部。
+
+### 导出内容
+
+- 固定的活动快照与路线修订（含段、点、风险标签）及**基线游标**（活动/路线版本与各安全实体状态）
+- 成员必要信息：ID、显示名、电话、时区、队伍角色和紧急联系人
+- 装备清单：该活动涉及的装备目录条目与需求，以及已有的装备核对
+- 安全计划：风险评估、签到计划与已有事件
+- **不包含**健康说明全文、出生日期、邮箱、运动档案或无关用户资料
+
+包是一份稳定的 UTF-8 JSON（键排序、可重复解析），哈希链为 `payload → manifest → checksum`（SHA-256），每条离线条目另有独立摘要。损坏或被篡改（包括只改条目再重封 manifest）都会在**写库之前**被拒绝。
+
+### 离线端可做什么
+
+`trailforge/offline/` 是纯标准库模块，无需数据库或网络。离线电脑可以向包中追加：签到补录、紧急事件时间线、装备核对；追加时自动重算摘要，并对照包内活动时间窗做基础校验。
+
+### 导回校验与原子策略
+
+导回时逐条校验：来源活动必须与包一致、用户/装备/签到槽位的引用完整性、事件时间顺序与活动窗口，以及包内自然键不得重复。之后对每条给出 `applied` / `already_applied` / `conflict` 分类：
+
+- 同一包重复导入：按条目内容指纹去重，**无业务副作用**（返回 `no_op`）。
+- 总部已有同一实体的**新版本**（同一签到槽位已提交、同 `client_ref` 事件内容不同、同人与同装备的核对不同）：**绝不覆盖**，返回结构化冲突清单。
+- 原子策略明确且可测试：默认 `on_conflict=abort`，只要存在冲突条目，整包零写入并返回 409 冲突清单；显式传 `on_conflict=skip_conflicts` 时，跳过冲突条目，其余条目在**同一事务**内提交。并发下的签到补录使用条件更新，后到者整包回滚而不是覆盖。
+
+导出、成功导入和被拒绝的导入都会写审计记录，审计中只含 pack 标识、哈希、计数和原因，不含成员电话或事件正文。
+
+```bash
+# 领队出发前
+python -m trailforge.cli export-pack 12 --actor-id 7 --output pack-12.json
+
+# 离线电脑上反复追加（不连接数据库）
+python -m trailforge.cli pack-add-entry pack-12.json --type check_in_completion --data checkin.json
+python -m trailforge.cli pack-inspect pack-12.json
+
+# 返程后导回
+python -m trailforge.cli import-pack pack-12.json --actor-id 7
+python -m trailforge.cli import-pack pack-12.json --actor-id 7 --on-conflict skip_conflicts
+```
+
+对应的 HTTP 接口是 `POST /api/v1/offline/expeditions/{id}/action-pack/export` 与 `POST /api/v1/offline/action-packs/import`。
